@@ -38,7 +38,8 @@ export class AuthService {
                     },
                 });
             } catch (dbError) {
-                throw new InternalServerErrorException('Error al crear el perfil de usuario');
+                console.error('DB Error:', dbError);
+                throw new InternalServerErrorException((dbError as Error).message ?? 'Error al crear el perfil de usuario');
             }
         }
         return { userId: authData.user?.id };
