@@ -1,4 +1,4 @@
-import { Controller, Post, Body, Get, Param, UseGuards } from '@nestjs/common';
+import { Controller, Post, Body, Get, Param, Req, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { UsersService } from './users.service';
 import { CreateUserDto } from './dto/create-user.dto';
@@ -16,6 +16,12 @@ export class UsersController {
     @ApiOperation({ summary: 'Crear o actualizar usuario' })
     create(@Body() createUserDto: CreateUserDto) {
         return this.usersService.createOrUpdate(createUserDto);
+    }
+
+    @Get('me')
+    @ApiOperation({ summary: 'Obtener perfil del usuario autenticado' })
+    findMe(@Req() req: { user: { userId: string } }): Promise<UserEntity> {
+        return this.usersService.encontrarUsuarioAutenticado(req.user.userId);
     }
 
     @Get(':id')

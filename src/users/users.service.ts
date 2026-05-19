@@ -46,8 +46,13 @@ export class UsersService {
         if (!user) {
             throw new NotFoundException(`Usuario con ID ${id} no encontrado`);
         }
-        return user as UserEntity; 
+        return user as UserEntity;
     }
+
+    async encontrarUsuarioAutenticado(userId: string): Promise<UserEntity> {
+        return this.encontrarPorId(userId);
+    }
+
     async getAllbyCareer(carrera: string) {
         return this.prisma.user.findMany({ where: { carrera } });
     }

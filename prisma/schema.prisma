@@ -7,12 +7,46 @@ datasource db {
 }
 
 model User {
-  id        String   @id
-  email     String   @unique
-  nombre    String
-  apellido  String
-  carrera   String
-  semestre  Int
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id           String        @id
+  email        String        @unique
+  nombre       String
+  apellido     String
+  carrera      String
+  semestre     Int
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  quizAttempts QuizAttempt[]
+}
+
+model QuizAttempt {
+  id             Int          @id @default(autoincrement())
+  userId         String
+  subjectId      String
+  totalQuestions Int
+  correctAnswers Int
+  finishedAt     DateTime     @default(now())
+  createdAt      DateTime     @default(now())
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  answers        QuizAnswer[]
+
+  @@index([userId])
+  @@index([userId, subjectId])
+  @@index([userId, finishedAt])
+}
+
+model QuizAnswer {
+  id               Int         @id @default(autoincrement())
+  attemptId        Int
+  questionOrder    Int
+  statement        String
+  options          Json
+  selectedOptionId String
+  correctOptionId  String
+  isCorrect        Boolean
+  explanation      String
+  createdAt        DateTime    @default(now())
+  attempt          QuizAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+
+  @@index([attemptId])
+  @@unique([attemptId, questionOrder])
 }
