@@ -6,6 +6,7 @@ import { JwtStrategy } from './auth/jwt.strategy';
 import { PassportModule } from '@nestjs/passport';
 import { QuestionsModule } from './questions/questions.module';
 import { ProgressModule } from './progress/progress.module';
+import { ChatModule } from './chat/chat.module';
 @Module({
   imports: [ConfigModule.forRoot({
       isGlobal: true,
@@ -14,7 +15,8 @@ import { ProgressModule } from './progress/progress.module';
     UsersModule,
     AuthModule,
     QuestionsModule,
-    ProgressModule],
+    ProgressModule,
+    ChatModule],
   controllers: [],
   providers: [JwtStrategy],
 })
