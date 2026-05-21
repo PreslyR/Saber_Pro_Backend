@@ -622,10 +622,7 @@ export interface SituacionResponse {
 }
 
 export interface CorreccionResponse {
-  retroalimentacion: string;
-  puntaje: number;
-  aspectos_positivos: string;
-  aspectos_mejorar: string;
+  evaluacion: string;
 }
 
 const SITUACION_GENERATION_SYSTEM_PROMPT = [
@@ -638,17 +635,37 @@ const SITUACION_GENERATION_SYSTEM_PROMPT = [
   '"criterios" lista los criterios con los que se evaluará el texto (coherencia, cohesión, argumentación, vocabulario).',
 ].join(' ');
 
-const TEXTO_CORRECTION_SYSTEM_PROMPT = [
-  'Eres un experto evaluador de la prueba Saber Pro del ICFES Colombia, módulo de Escritura.',
-  'Recibirás un JSON con las claves "situacion" y "texto_estudiante".',
-  'Evalúa el texto del estudiante según los criterios del módulo de Escritura: coherencia, cohesión, argumentación y uso del lenguaje.',
-  'Responde únicamente con un objeto JSON válido y sin texto adicional.',
-  'El JSON debe tener exactamente las claves "retroalimentacion", "puntaje", "aspectos_positivos" y "aspectos_mejorar".',
-  '"puntaje" es un número entero del 1 al 10 según la calidad del texto.',
-  '"retroalimentacion" es un párrafo de evaluación general.',
-  '"aspectos_positivos" describe los puntos fuertes del texto.',
-  '"aspectos_mejorar" describe los aspectos que el estudiante debe mejorar.',
-].join(' ');
+const TEXTO_CORRECTION_SYSTEM_PROMPT =
+  'Eres un evaluador experto del módulo de Comunicación Escrita de Saber Pro del ICFES Colombia. ' +
+  'Tu tarea es evaluar textos escritos por estudiantes universitarios con base en tres criterios oficiales y estables:\n\n' +
+  '1. Comunicación: verifica si el texto responde a la tarea, cumple el propósito solicitado y presenta una postura, idea central o intención comunicativa clara.\n' +
+  '2. Coherencia y cohesión: evalúa si las ideas se organizan de manera lógica, progresiva y conectada; revisa el uso de párrafos, conectores y unidad temática.\n' +
+  '3. Uso del lenguaje: evalúa ortografía, gramática, puntuación, concordancia, elección léxica y registro adecuado al contexto.\n\n' +
+  'INSTRUCCIONES OBLIGATORIAS PARA CADA EVALUACIÓN:\n' +
+  '- Asigna un nivel a cada criterio: Alto, Medio o Bajo.\n' +
+  '- Justifica cada nivel con evidencia textual concreta.\n' +
+  '- Cita siempre el fragmento exacto problemático entre comillas simples.\n' +
+  '- Incluye la corrección exacta del fragmento y explica brevemente el motivo del error.\n' +
+  '- Si el texto no responde completamente a la tarea, indícalo de forma explícita.\n' +
+  '- Entrega una versión mejorada completa del texto, conservando exactamente las mismas ideas, argumentos y postura del estudiante.\n' +
+  '- No agregues información nueva, no cambies el sentido, no corrijas hechos externos dentro de la versión mejorada; solo mejora redacción, orden, cohesión y corrección lingüística.\n' +
+  '- Mantén un tono académico, claro, preciso y consistente.\n\n' +
+  'FORMATO DE RESPUESTA REQUERIDO:\n' +
+  '- Comunicación: [Nivel] — [justificación]\n' +
+  '- Coherencia y cohesión: [Nivel] — [justificación]\n' +
+  '- Uso del lenguaje: [Nivel] — [justificación]\n' +
+  '- Fortalezas:\n' +
+  '  - [fortaleza 1]\n' +
+  '  - [fortaleza 2]\n' +
+  '- Correcciones:\n' +
+  "  - Fragmento: '[texto original]' → Corrección: '[texto corregido]' Motivo: [explicación]\n" +
+  '- Versión mejorada:\n' +
+  '  [texto completo corregido]\n\n' +
+  'REGLAS DE CALIDAD:\n' +
+  '- No uses explicaciones genéricas.\n' +
+  "- No evalúes con frases vagas como 'está bien redactado' sin evidencia.\n" +
+  '- La justificación debe corresponder exactamente al nivel asignado.\n' +
+  '- Sé consistente entre diagnóstico, corrección y versión mejorada.';
 
 const assertValidSituacionResponse: (
   value: unknown,
@@ -670,26 +687,9 @@ const assertValidSituacionResponse: (
   }
 };
 
-const assertValidCorreccionResponse: (
-  value: unknown,
-) => asserts value is CorreccionResponse = (value) => {
-  if (typeof value !== 'object' || value === null) {
-    throw new Error('La respuesta de corrección no es un objeto.');
-  }
-
-  const c = value as Partial<CorreccionResponse>;
-
-  if (typeof c.retroalimentacion !== 'string' || !c.retroalimentacion.trim()) {
-    throw new Error('El campo "retroalimentacion" no es válido.');
-  }
-  if (typeof c.puntaje !== 'number' || c.puntaje < 1 || c.puntaje > 10) {
-    throw new Error('El campo "puntaje" debe ser un número entre 1 y 10.');
-  }
-  if (typeof c.aspectos_positivos !== 'string' || !c.aspectos_positivos.trim()) {
-    throw new Error('El campo "aspectos_positivos" no es válido.');
-  }
-  if (typeof c.aspectos_mejorar !== 'string' || !c.aspectos_mejorar.trim()) {
-    throw new Error('El campo "aspectos_mejorar" no es válido.');
+const assertValidCorreccionResponse = (value: CorreccionResponse) => {
+  if (typeof value.evaluacion !== 'string' || !value.evaluacion.trim()) {
+    throw new Error('La evaluación devuelta por el modelo está vacía.');
   }
 };
 
@@ -916,10 +916,8 @@ export class SituacionesService {
   }
 
   async corregirTexto(dto: CorregirTextoDto): Promise<CorreccionResponse> {
-    const correctionPrompt = JSON.stringify({
-      situacion: dto.situacion,
-      texto_estudiante: dto.texto,
-    });
+    const correctionPrompt =
+      `Situación:\n${dto.situacion}\n\nTexto del estudiante:\n${dto.texto}`;
 
     for (let attempt = 1; attempt <= MAX_SITUACION_ATTEMPTS; attempt += 1) {
       try {
@@ -929,15 +927,14 @@ export class SituacionesService {
             { role: 'system', content: TEXTO_CORRECTION_SYSTEM_PROMPT },
             { role: 'user', content: correctionPrompt },
           ],
-          max_tokens: 800,
+          max_tokens: 1200,
           temperature: 0,
-          response_format: { type: 'json_object' },
         });
 
-        const content = response.choices[0].message.content ?? '{}';
-        const parsed = JSON.parse(content) as unknown;
-        assertValidCorreccionResponse(parsed);
-        return parsed;
+        const evaluacion = response.choices[0].message.content ?? '';
+        const result: CorreccionResponse = { evaluacion };
+        assertValidCorreccionResponse(result);
+        return result;
       } catch (error) {
         if (attempt === MAX_SITUACION_ATTEMPTS) {
           console.error('Text correction failed:', error);
