@@ -7,6 +7,7 @@ import { PassportModule } from '@nestjs/passport';
 import { QuestionsModule } from './questions/questions.module';
 import { ProgressModule } from './progress/progress.module';
 import { ChatModule } from './chat/chat.module';
+import { LeaderboardModule } from './leaderboard/leaderboard.module';
 @Module({
   imports: [ConfigModule.forRoot({
       isGlobal: true,
@@ -16,7 +17,8 @@ import { ChatModule } from './chat/chat.module';
     AuthModule,
     QuestionsModule,
     ProgressModule,
-    ChatModule],
+    ChatModule,
+    LeaderboardModule],
   controllers: [],
   providers: [JwtStrategy],
 })

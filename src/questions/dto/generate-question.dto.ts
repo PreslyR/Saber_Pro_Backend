@@ -12,3 +12,4 @@ export class GenerateQuestionDto {
   @IsEnum(Competencia)
   competencia!: Competencia;
 }
+

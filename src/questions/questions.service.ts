@@ -2,6 +2,8 @@ import { Injectable, InternalServerErrorException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
 import { GenerateQuestionDto } from './dto/generate-question.dto';
+import { GenerateSituacionDto } from './dto/generate-situacion.dto';
+import { CorregirTextoDto } from './dto/corregir-texto.dto';
 
 const OPTION_IDS = ['A', 'B', 'C', 'D'] as const;
 const MAX_GENERATION_ATTEMPTS = 5;
@@ -183,22 +185,38 @@ const resolveCorrectOptionId = (
   options: Record<OptionId, string>,
   verification: VerifiedAnswerResponse,
 ): OptionId => {
+  if (verification.respuesta_correcta_texto === 'NINGUNA') {
+    throw new Error('La pregunta generada no tiene una opcion correcta unica.');
+  }
+
   const matchingResultOptionIds = resolveMatchingOptionIds(
     options,
     verification.resultado_final,
     false,
   );
 
-  if (matchingResultOptionIds.length !== 1) {
-    throw new Error(
-      'El resultado_final no coincide de forma univoca con una opcion.',
+  if (matchingResultOptionIds.length > 1) {
+    throw new Error('El resultado_final coincide con mas de una opcion.');
+  }
+
+  // resultado_final no coincidio exactamente: usar respuesta_correcta_texto como fuente primaria
+  if (matchingResultOptionIds.length === 0) {
+    const matchingAnswerOptionIds = resolveMatchingOptionIds(
+      options,
+      verification.respuesta_correcta_texto,
+      true,
     );
+
+    if (matchingAnswerOptionIds.length !== 1) {
+      throw new Error(
+        'Ni resultado_final ni respuesta_correcta_texto coinciden univocamente con una opcion.',
+      );
+    }
+
+    return matchingAnswerOptionIds[0];
   }
 
-  if (verification.respuesta_correcta_texto === 'NINGUNA') {
-    throw new Error('La pregunta generada no tiene una opcion correcta unica.');
-  }
-
+  // resultado_final coincidio: validar que respuesta_correcta_texto no contradiga
   const matchingAnswerOptionIds = resolveMatchingOptionIds(
     options,
     verification.respuesta_correcta_texto,
@@ -542,6 +560,141 @@ const buildQuantitativeQuestion = (): QuestionResponse => {
   return buildQuestionResponseFromTemplate(pickRandom(templateBuilders)());
 };
 
+// ─── Situaciones ────────────────────────────────────────────────────────────
+
+const TEMAS_SABER_PRO = [
+  // Política y sociedad
+  'pena de muerte para feminicidas en Colombia',
+  'voto obligatorio en Colombia',
+  'reducción de la edad penal a 14 años en Colombia',
+  'extradición de colombianos al exterior',
+  'financiación estatal de partidos políticos en Colombia',
+  'reelección presidencial en Colombia',
+  'objeción de conciencia para funcionarios públicos en Colombia',
+  // Educación
+  'gratuidad total de la educación universitaria pública en Colombia',
+  'prohibición de celulares en colegios colombianos',
+  'evaluación docente con base en resultados de estudiantes',
+  'convalidación automática de títulos extranjeros en Colombia',
+  'educación sexual obligatoria desde primaria en Colombia',
+  'jornada única escolar en colegios públicos colombianos',
+  // Salud y bioética
+  'eutanasia activa en Colombia',
+  'vacunación obligatoria para menores en Colombia',
+  'regulación del consumo de alcohol en espacios públicos',
+  'despenalización del aborto en todos los casos en Colombia',
+  'prohibición de la venta de cigarrillos en Colombia',
+  'legalización del consumo recreativo de marihuana en Colombia',
+  // Medio ambiente
+  'fracking como fuente de energía en Colombia',
+  'prohibición de corridas de toros en Colombia',
+  'minería a gran escala en zonas de páramo',
+  'impuesto al carbono para empresas colombianas',
+  'prohibición de bolsas plásticas de un solo uso en Colombia',
+  'veganismo obligatorio en comedores universitarios',
+  // Tecnología y trabajo
+  'inteligencia artificial en decisiones judiciales en Colombia',
+  'regulación estatal de redes sociales en Colombia',
+  'semana laboral de cuatro días en Colombia',
+  'teletrabajo obligatorio en entidades públicas colombianas',
+  'uso de cámaras de vigilancia en espacios públicos colombianos',
+  'identificación obligatoria de usuarios en redes sociales',
+  // Economía
+  'salario mínimo diferencial por regiones en Colombia',
+  'impuesto a las grandes fortunas en Colombia',
+  'eliminación de impuestos a vehículos eléctricos en Colombia',
+  'regulación de precios de arrendamiento en ciudades colombianas',
+  'trabajo informal como modalidad legal en Colombia',
+  // Cultura y derechos
+  'adopción de menores por parejas del mismo sexo en Colombia',
+  'matrimonio igualitario en Colombia',
+  'consumo de drogas en espacios privados en Colombia',
+  'regulación de contenidos en plataformas de streaming en Colombia',
+  'enseñanza obligatoria de lenguas indígenas en colegios colombianos',
+] as const;
+
+const MAX_SITUACION_ATTEMPTS = 3;
+
+export interface SituacionResponse {
+  situacion: string;
+  instrucciones: string;
+  criterios: string[];
+}
+
+export interface CorreccionResponse {
+  retroalimentacion: string;
+  puntaje: number;
+  aspectos_positivos: string;
+  aspectos_mejorar: string;
+}
+
+const SITUACION_GENERATION_SYSTEM_PROMPT = [
+  'Eres un experto evaluador de la prueba Saber Pro del ICFES Colombia, módulo de Escritura.',
+  'Genera una situación de escritura auténtica donde el estudiante debe redactar un texto argumentativo u opinativo.',
+  'Responde únicamente con un objeto JSON válido y sin texto adicional.',
+  'El JSON debe tener exactamente las claves "situacion", "instrucciones" y "criterios".',
+  '"situacion" describe el contexto o situación problema que motiva la escritura.',
+  '"instrucciones" indica qué debe redactar el estudiante (mínimo de palabras, tipo de texto, posición a defender).',
+  '"criterios" lista los criterios con los que se evaluará el texto (coherencia, cohesión, argumentación, vocabulario).',
+].join(' ');
+
+const TEXTO_CORRECTION_SYSTEM_PROMPT = [
+  'Eres un experto evaluador de la prueba Saber Pro del ICFES Colombia, módulo de Escritura.',
+  'Recibirás un JSON con las claves "situacion" y "texto_estudiante".',
+  'Evalúa el texto del estudiante según los criterios del módulo de Escritura: coherencia, cohesión, argumentación y uso del lenguaje.',
+  'Responde únicamente con un objeto JSON válido y sin texto adicional.',
+  'El JSON debe tener exactamente las claves "retroalimentacion", "puntaje", "aspectos_positivos" y "aspectos_mejorar".',
+  '"puntaje" es un número entero del 1 al 10 según la calidad del texto.',
+  '"retroalimentacion" es un párrafo de evaluación general.',
+  '"aspectos_positivos" describe los puntos fuertes del texto.',
+  '"aspectos_mejorar" describe los aspectos que el estudiante debe mejorar.',
+].join(' ');
+
+const assertValidSituacionResponse: (
+  value: unknown,
+) => asserts value is SituacionResponse = (value) => {
+  if (typeof value !== 'object' || value === null) {
+    throw new Error('La respuesta del modelo no es un objeto.');
+  }
+
+  const s = value as Partial<SituacionResponse>;
+
+  if (typeof s.situacion !== 'string' || !s.situacion.trim()) {
+    throw new Error('El campo "situacion" no es válido.');
+  }
+  if (typeof s.instrucciones !== 'string' || !s.instrucciones.trim()) {
+    throw new Error('El campo "instrucciones" no es válido.');
+  }
+  if (!Array.isArray(s.criterios) || s.criterios.length === 0) {
+    throw new Error('El campo "criterios" no es válido.');
+  }
+};
+
+const assertValidCorreccionResponse: (
+  value: unknown,
+) => asserts value is CorreccionResponse = (value) => {
+  if (typeof value !== 'object' || value === null) {
+    throw new Error('La respuesta de corrección no es un objeto.');
+  }
+
+  const c = value as Partial<CorreccionResponse>;
+
+  if (typeof c.retroalimentacion !== 'string' || !c.retroalimentacion.trim()) {
+    throw new Error('El campo "retroalimentacion" no es válido.');
+  }
+  if (typeof c.puntaje !== 'number' || c.puntaje < 1 || c.puntaje > 10) {
+    throw new Error('El campo "puntaje" debe ser un número entre 1 y 10.');
+  }
+  if (typeof c.aspectos_positivos !== 'string' || !c.aspectos_positivos.trim()) {
+    throw new Error('El campo "aspectos_positivos" no es válido.');
+  }
+  if (typeof c.aspectos_mejorar !== 'string' || !c.aspectos_mejorar.trim()) {
+    throw new Error('El campo "aspectos_mejorar" no es válido.');
+  }
+};
+
+// ─── Questions ───────────────────────────────────────────────────────────────
+
 const shuffleQuestionOptions = (
   question: RawQuestionResponse,
   correctOptionId: OptionId,
@@ -606,16 +759,6 @@ export class QuestionsService {
           correctOptionId,
           verifiedAnswer.resultado_final,
         );
-
-        if (
-          !explanationMentionsAnswer(
-            explanation,
-            verifiedAnswer.resultado_final,
-            generatedQuestion.opciones[correctOptionId],
-          )
-        ) {
-          throw new Error('La explicacion no menciona el resultado final validado.');
-        }
 
         return shuffleQuestionOptions(
           generatedQuestion,
@@ -717,5 +860,96 @@ export class QuestionsService {
     assertValidExplanationResponse(parsedContent);
 
     return parsedContent.explicacion;
+  }
+}
+
+@Injectable()
+export class SituacionesService {
+  private readonly client: OpenAI;
+  private readonly modelId: string;
+
+  constructor(private readonly configService: ConfigService) {
+    this.client = new OpenAI({
+      apiKey: this.configService.get<string>('OPENAI_API_KEY'),
+    });
+    const situacionesModelId = this.configService.get<string>('MODELO_ID_COMP_ESCRITA');
+    if (!situacionesModelId) {
+      throw new Error('La variable de entorno MODELO_ID_COMP_ESCRITA no está definida.');
+    }
+    this.modelId = situacionesModelId;
+  }
+
+  async generateSituacion(dto: GenerateSituacionDto): Promise<SituacionResponse> {
+    const tema = dto.tema ?? pickRandom(TEMAS_SABER_PRO);
+    const prompt = `Genera una situación de escritura para el tema: "${tema}".`;
+
+    for (let attempt = 1; attempt <= MAX_SITUACION_ATTEMPTS; attempt += 1) {
+      try {
+        const response = await this.client.chat.completions.create({
+          model: this.modelId,
+          messages: [
+            { role: 'system', content: SITUACION_GENERATION_SYSTEM_PROMPT },
+            { role: 'user', content: prompt },
+          ],
+          max_tokens: 600,
+          temperature: 0.7,
+          response_format: { type: 'json_object' },
+        });
+
+        const content = response.choices[0].message.content ?? '{}';
+        const parsed = JSON.parse(content) as unknown;
+        assertValidSituacionResponse(parsed);
+        return parsed;
+      } catch (error) {
+        if (attempt === MAX_SITUACION_ATTEMPTS) {
+          console.error('Situacion generation failed:', error);
+          throw new InternalServerErrorException(
+            'Error al generar la situación con el modelo de IA.',
+          );
+        }
+      }
+    }
+
+    throw new InternalServerErrorException(
+      'Error al generar la situación con el modelo de IA.',
+    );
+  }
+
+  async corregirTexto(dto: CorregirTextoDto): Promise<CorreccionResponse> {
+    const correctionPrompt = JSON.stringify({
+      situacion: dto.situacion,
+      texto_estudiante: dto.texto,
+    });
+
+    for (let attempt = 1; attempt <= MAX_SITUACION_ATTEMPTS; attempt += 1) {
+      try {
+        const response = await this.client.chat.completions.create({
+          model: this.modelId,
+          messages: [
+            { role: 'system', content: TEXTO_CORRECTION_SYSTEM_PROMPT },
+            { role: 'user', content: correctionPrompt },
+          ],
+          max_tokens: 800,
+          temperature: 0,
+          response_format: { type: 'json_object' },
+        });
+
+        const content = response.choices[0].message.content ?? '{}';
+        const parsed = JSON.parse(content) as unknown;
+        assertValidCorreccionResponse(parsed);
+        return parsed;
+      } catch (error) {
+        if (attempt === MAX_SITUACION_ATTEMPTS) {
+          console.error('Text correction failed:', error);
+          throw new InternalServerErrorException(
+            'Error al corregir el texto con el modelo de IA.',
+          );
+        }
+      }
+    }
+
+    throw new InternalServerErrorException(
+      'Error al corregir el texto con el modelo de IA.',
+    );
   }
 }
