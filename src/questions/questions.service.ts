@@ -1,7 +1,7 @@
 import { Injectable, InternalServerErrorException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
-import { GenerateQuestionDto } from './dto/generate-question.dto';
+import { Dificultad, GenerateQuestionDto } from './dto/generate-question.dto';
 import { GenerateSituacionDto } from './dto/generate-situacion.dto';
 import { CorregirTextoDto } from './dto/corregir-texto.dto';
 
@@ -543,8 +543,170 @@ const buildRectangleAreaQuestion = (): QuantitativeTemplateQuestion => {
   };
 };
 
-const buildQuantitativeQuestion = (): QuestionResponse => {
-  const templateBuilders = [
+// ─── Intermediate templates ──────────────────────────────────────────────────
+
+const buildDiscountAndTaxQuestion = (): QuantitativeTemplateQuestion => {
+  const originalPrice = pickRandom([60000, 100000, 140000, 180000, 220000]);
+  const discountPercent = pickRandom([10, 15, 20, 25]);
+  const taxPercent = pickRandom([8, 16, 19]);
+  const discountedPrice = originalPrice * (1 - discountPercent / 100);
+  const finalPrice = Math.round(discountedPrice * (1 + taxPercent / 100));
+  const correctOptionText = formatCurrency(finalPrice);
+  const distractorOptionTexts = buildDistinctDistractors(correctOptionText, [
+    formatCurrency(originalPrice),
+    formatCurrency(Math.round(discountedPrice)),
+    formatCurrency(Math.round(originalPrice * (1 + taxPercent / 100))),
+    formatCurrency(Math.round(finalPrice + originalPrice * 0.05)),
+    formatCurrency(Math.max(10000, finalPrice - Math.round(originalPrice * 0.05))),
+  ]);
+
+  return {
+    enunciado: `Un articulo tiene un precio original de ${formatCurrency(originalPrice)}. La tienda aplica un descuento del ${discountPercent}% y luego cobra un impuesto del ${taxPercent}% sobre el precio descontado. ?Cual es el precio final del articulo?`,
+    correctOptionText,
+    distractorOptionTexts,
+    explicacion: `Primero calculamos el descuento: ${discountPercent}% de ${formatCurrency(originalPrice)} = ${formatCurrency(Math.round(originalPrice * discountPercent / 100))}. Precio descontado: ${formatCurrency(originalPrice)} - ${formatCurrency(Math.round(originalPrice * discountPercent / 100))} = ${formatCurrency(Math.round(discountedPrice))}. Luego aplicamos el impuesto del ${taxPercent}%: ${formatCurrency(Math.round(discountedPrice))} × (1 + ${taxPercent}/100) = ${formatCurrency(finalPrice)}.`,
+  };
+};
+
+const buildRecipeScaleQuestion = (): QuantitativeTemplateQuestion => {
+  const scenarios = [
+    { kg: 3, people: 6, targetPeople: 10 },
+    { kg: 2, people: 4, targetPeople: 9 },
+    { kg: 4, people: 8, targetPeople: 14 },
+    { kg: 5, people: 10, targetPeople: 16 },
+    { kg: 2, people: 5, targetPeople: 12 },
+  ];
+  const scenario = pickRandom(scenarios);
+  const kgPerPerson = scenario.kg / scenario.people;
+  const kgForTarget = scenario.targetPeople * kgPerPerson;
+  const gramsForTarget = Math.round(kgForTarget * 1000);
+  const correctOptionText = `${formatThousands(gramsForTarget)} g`;
+  const distractorOptionTexts = buildDistinctDistractors(correctOptionText, [
+    `${formatDecimal(kgForTarget)} kg`,
+    `${formatThousands(Math.round(kgForTarget * 100))} g`,
+    `${formatThousands(Math.round(kgForTarget * 2000))} g`,
+    `${formatThousands(gramsForTarget + 500)} g`,
+    `${formatThousands(Math.max(100, gramsForTarget - 500))} g`,
+  ]);
+
+  return {
+    enunciado: `Una receta requiere ${formatDecimal(scenario.kg)} kg de harina para ${scenario.people} personas. ?Cuantos gramos de harina se necesitan para ${scenario.targetPeople} personas?`,
+    correctOptionText,
+    distractorOptionTexts,
+    explicacion: `Primero calculamos la harina por persona: ${formatDecimal(scenario.kg)} kg / ${scenario.people} = ${formatDecimal(kgPerPerson)} kg por persona. Para ${scenario.targetPeople} personas: ${formatDecimal(kgPerPerson)} × ${scenario.targetPeople} = ${formatDecimal(kgForTarget)} kg. Convertimos a gramos: ${formatDecimal(kgForTarget)} × 1000 = ${formatThousands(gramsForTarget)} g.`,
+  };
+};
+
+const buildMissingValueAverageQuestion = (): QuantitativeTemplateQuestion => {
+  const average = pickRandom([12, 14, 15, 16, 18]);
+  const offsets = [
+    pickRandom([-2, -1, 1, 2, 3]),
+    pickRandom([-3, -2, -1, 1, 2]),
+    pickRandom([-2, -1, 1, 2, 3]),
+  ];
+  const knownValues = offsets.map((offset) => average + offset);
+  const missingValue = average * 4 - knownValues.reduce((sum, v) => sum + v, 0);
+  const correctOptionText = missingValue.toString();
+  const distractorOptionTexts = buildDistinctDistractors(correctOptionText, [
+    average.toString(),
+    (average + 1).toString(),
+    Math.max(1, average - 1).toString(),
+    (average + 2).toString(),
+    Math.max(1, average - 2).toString(),
+  ]);
+
+  return {
+    enunciado: `El promedio de cuatro calificaciones es ${average}. Tres de ellas son: ${knownValues.join(', ')}. ?Cual es la cuarta calificacion?`,
+    correctOptionText,
+    distractorOptionTexts,
+    explicacion: `La suma de las cuatro calificaciones debe ser ${average} × 4 = ${average * 4}. Las tres conocidas suman ${knownValues.join(' + ')} = ${knownValues.reduce((s, v) => s + v, 0)}. Entonces la cuarta calificacion es ${average * 4} - ${knownValues.reduce((s, v) => s + v, 0)} = ${missingValue}.`,
+  };
+};
+
+// ─── Advanced templates ──────────────────────────────────────────────────────
+
+const buildBreakEvenQuestion = (): QuantitativeTemplateQuestion => {
+  const scenarios = [
+    { fixedCost: 600000, margin: 15000, units: 40, variableCost: 25000, sellingPrice: 40000 },
+    { fixedCost: 800000, margin: 20000, units: 40, variableCost: 30000, sellingPrice: 50000 },
+    { fixedCost: 1200000, margin: 20000, units: 60, variableCost: 35000, sellingPrice: 55000 },
+    { fixedCost: 1500000, margin: 25000, units: 60, variableCost: 25000, sellingPrice: 50000 },
+    { fixedCost: 2000000, margin: 25000, units: 80, variableCost: 20000, sellingPrice: 45000 },
+  ];
+  const s = pickRandom(scenarios);
+  const correctOptionText = formatThousands(s.units);
+  const distractorOptionTexts = buildDistinctDistractors(correctOptionText, [
+    formatThousands(Math.round(s.units * 1.2)),
+    formatThousands(Math.round(s.units * 0.8)),
+    formatThousands(Math.round(s.fixedCost / s.sellingPrice)),
+    formatThousands(Math.round(s.fixedCost / s.variableCost)),
+    formatThousands(s.units + 10),
+  ]);
+
+  return {
+    enunciado: `Una empresa tiene costos fijos de ${formatCurrency(s.fixedCost)} y un costo variable de ${formatCurrency(s.variableCost)} por unidad. Si el precio de venta es ${formatCurrency(s.sellingPrice)} por unidad, ?cuantas unidades debe vender para alcanzar el punto de equilibrio (sin perdidas ni ganancias)?`,
+    correctOptionText,
+    distractorOptionTexts,
+    explicacion: `En el punto de equilibrio: ingresos = costos totales. Si se venden x unidades: ${formatThousands(s.sellingPrice)}x = ${formatThousands(s.fixedCost)} + ${formatThousands(s.variableCost)}x. Despejando: (${formatThousands(s.sellingPrice)} - ${formatThousands(s.variableCost)})x = ${formatThousands(s.fixedCost)}. Entonces x = ${formatThousands(s.fixedCost)} / ${formatThousands(s.margin)} = ${formatThousands(s.units)} unidades.`,
+  };
+};
+
+const buildCombinedWorkRateQuestion = (): QuantitativeTemplateQuestion => {
+  const scenarios = [
+    { rateA: 8, rateB: 4, combinedTime: 5, timeA: 3, totalUnits: 60, timeB: 9 },
+    { rateA: 12, rateB: 6, combinedTime: 4, timeA: 2, totalUnits: 72, timeB: 8 },
+    { rateA: 10, rateB: 5, combinedTime: 4, timeA: 3, totalUnits: 60, timeB: 6 },
+    { rateA: 9, rateB: 6, combinedTime: 4, timeA: 2, totalUnits: 60, timeB: 7 },
+    { rateA: 15, rateB: 10, combinedTime: 3, timeA: 2, totalUnits: 75, timeB: 4.5 },
+  ];
+  const s = pickRandom(scenarios);
+  const correctOptionText = formatHours(s.timeB);
+  const distractorOptionTexts = buildDistinctDistractors(correctOptionText, [
+    formatHours(s.timeB + 1),
+    formatHours(Math.max(1, s.timeB - 1)),
+    formatHours(s.combinedTime),
+    formatHours(s.timeA + 1),
+    formatHours(s.combinedTime + s.timeA),
+  ]);
+
+  return {
+    enunciado: `La maquina A produce ${s.rateA} piezas por hora y la maquina B produce ${s.rateB} piezas por hora. Juntas producen ${s.totalUnits} piezas en ${s.combinedTime} horas. Si la maquina A trabaja sola durante ${s.timeA} horas produciendo ${s.rateA * s.timeA} piezas, ?cuantas horas necesita la maquina B para terminar las piezas restantes?`,
+    correctOptionText,
+    distractorOptionTexts,
+    explicacion: `Juntas producen ${s.rateA} + ${s.rateB} = ${s.rateA + s.rateB} piezas por hora. En ${s.combinedTime} horas producen ${s.totalUnits} piezas. Si A trabaja ${s.timeA} horas: ${s.rateA} × ${s.timeA} = ${s.rateA * s.timeA} piezas. Restan ${s.totalUnits} - ${s.rateA * s.timeA} = ${s.totalUnits - s.rateA * s.timeA} piezas. B las produce en ${s.totalUnits - s.rateA * s.timeA} / ${s.rateB} = ${formatDecimal(s.timeB)} horas.`,
+  };
+};
+
+const buildTripleRuleQuestion = (): QuantitativeTemplateQuestion => {
+  const scenarios = [
+    { machines: 2, hours: 5, rate: 10, totalUnits: 100, targetMachines: 4, targetUnits: 200, targetHours: 5 },
+    { machines: 3, hours: 4, rate: 12, totalUnits: 144, targetMachines: 5, targetUnits: 240, targetHours: 4 },
+    { machines: 2, hours: 6, rate: 15, totalUnits: 180, targetMachines: 3, targetUnits: 270, targetHours: 6 },
+    { machines: 4, hours: 3, rate: 8, totalUnits: 96, targetMachines: 6, targetUnits: 192, targetHours: 4 },
+    { machines: 3, hours: 5, rate: 10, totalUnits: 150, targetMachines: 5, targetUnits: 300, targetHours: 6 },
+  ];
+  const s = pickRandom(scenarios);
+  const correctOptionText = formatHours(s.targetHours);
+  const distractorOptionTexts = buildDistinctDistractors(correctOptionText, [
+    formatHours(s.hours),
+    formatHours(s.targetHours + 1),
+    formatHours(Math.max(1, s.targetHours - 1)),
+    formatHours(Math.round(s.targetUnits / s.targetMachines)),
+    formatHours(s.targetHours + 2),
+  ]);
+
+  return {
+    enunciado: `Si ${s.machines} maquinas producen ${s.totalUnits} piezas en ${s.hours} horas, ?cuantas horas necesitaran ${s.targetMachines} maquinas para producir ${s.targetUnits} piezas, trabajando al mismo ritmo?`,
+    correctOptionText,
+    distractorOptionTexts,
+    explicacion: `Cada maquina produce ${s.rate} piezas por hora (${s.totalUnits} / (${s.machines} × ${s.hours}) = ${s.rate}). Con ${s.targetMachines} maquinas, la produccion por hora es ${s.targetMachines} × ${s.rate} = ${s.targetMachines * s.rate}. Para producir ${s.targetUnits} piezas: ${s.targetUnits} / ${s.targetMachines * s.rate} = ${formatDecimal(s.targetHours)} horas.`,
+  };
+};
+
+const buildQuantitativeQuestion = (
+  dificultad: Dificultad = Dificultad.BASIC,
+): QuestionResponse => {
+  const pool: (() => QuantitativeTemplateQuestion)[] = [
     buildLinearEquationQuestion,
     buildDiscountedPriceQuestion,
     buildOriginalPriceQuestion,
@@ -555,9 +717,25 @@ const buildQuantitativeQuestion = (): QuestionResponse => {
     buildPercentageIncreaseQuestion,
     buildUnitConversionQuestion,
     buildRectangleAreaQuestion,
-  ] as const;
+  ];
 
-  return buildQuestionResponseFromTemplate(pickRandom(templateBuilders)());
+  if (dificultad === Dificultad.INTERMEDIATE || dificultad === Dificultad.ADVANCED) {
+    pool.push(
+      buildDiscountAndTaxQuestion,
+      buildRecipeScaleQuestion,
+      buildMissingValueAverageQuestion,
+    );
+  }
+
+  if (dificultad === Dificultad.ADVANCED) {
+    pool.push(
+      buildBreakEvenQuestion,
+      buildCombinedWorkRateQuestion,
+      buildTripleRuleQuestion,
+    );
+  }
+
+  return buildQuestionResponseFromTemplate(pickRandom(pool)());
 };
 
 // ─── Situaciones ────────────────────────────────────────────────────────────
@@ -740,18 +918,28 @@ export class QuestionsService {
   }
 
   async generateQuestion(dto: GenerateQuestionDto): Promise<QuestionResponse> {
+    const dificultad = dto.dificultad ?? Dificultad.BASIC;
+
     if (
       normalizeComparableText(dto.competencia) ===
       normalizeComparableText('Razonamiento cuantitativo')
     ) {
-      return buildQuantitativeQuestion();
+      return buildQuantitativeQuestion(dificultad);
+    }
+
+    let systemPrompt = GENERATION_SYSTEM_PROMPT;
+
+    if (dificultad === Dificultad.INTERMEDIATE) {
+      systemPrompt += ' La pregunta debe requerir razonamiento de dos pasos o conectores logicos.';
+    } else if (dificultad === Dificultad.ADVANCED) {
+      systemPrompt += ' La pregunta debe requerir razonamiento compuesto, analisis critico o inferencia de segundo orden.';
     }
 
     const prompt = `Genera una pregunta de Saber Pro del modulo '${dto.competencia}'.`;
 
     for (let attempt = 1; attempt <= MAX_GENERATION_ATTEMPTS; attempt += 1) {
       try {
-        const generatedQuestion = await this.generateRawQuestion(prompt);
+        const generatedQuestion = await this.generateRawQuestion(prompt, systemPrompt);
         const verifiedAnswer = await this.verifyCorrectOption(generatedQuestion);
         const correctOptionId = resolveCorrectOptionId(generatedQuestion.opciones, verifiedAnswer);
         const explanation = await this.buildExplanation(
@@ -780,11 +968,14 @@ export class QuestionsService {
     );
   }
 
-  private async generateRawQuestion(prompt: string): Promise<RawQuestionResponse> {
+  private async generateRawQuestion(
+    prompt: string,
+    systemPrompt: string = GENERATION_SYSTEM_PROMPT,
+  ): Promise<RawQuestionResponse> {
     const response = await this.client.chat.completions.create({
       model: this.modelId,
       messages: [
-        { role: 'system', content: GENERATION_SYSTEM_PROMPT },
+        { role: 'system', content: systemPrompt },
         { role: 'user', content: prompt },
       ],
       max_tokens: 600,

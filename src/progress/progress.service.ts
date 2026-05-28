@@ -35,6 +35,7 @@ interface UserStatsSummary {
   questionsToday: number;
   dailyGoalCompleted: number;
   dailyGoalTarget: number;
+  overallCompletionPct: number;
   objective: {
     name: string;
     description: string;
@@ -153,6 +154,18 @@ export class ProgressService {
     const level = Math.floor(xp / XP_PER_LEVEL) + 1;
     const xpToNextLevel = level * XP_PER_LEVEL;
 
+    const totalCompleted = Object.values(subjects).reduce(
+      (sum, subject) =>
+        sum + Math.min(subject.completedQuestions, subject.totalQuestions),
+      0,
+    );
+    const totalTarget = Object.values(subjects).reduce(
+      (sum, subject) => sum + subject.totalQuestions,
+      0,
+    );
+    const overallCompletionPct =
+      totalTarget > 0 ? Math.round((totalCompleted / totalTarget) * 100) : 0;
+
     return {
       userProgress: {
         userId: user.id,
@@ -167,6 +180,7 @@ export class ProgressService {
         questionsToday,
         dailyGoalCompleted,
         dailyGoalTarget: DAILY_GOAL_TARGET,
+        overallCompletionPct,
         objective: {
           name: DEFAULT_OBJECTIVE.name,
           description: DEFAULT_OBJECTIVE.description,

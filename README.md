@@ -1,98 +1,233 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# EduSaber — Backend
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+API para la plataforma de preparación del examen SABER PRO, impulsada por modelos de lenguaje fine-tuned.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+## Stack
 
-## Description
+- **Framework**: NestJS 11
+- **ORM**: Prisma 7 + PostgreSQL (Supabase)
+- **Auth**: Supabase Auth + JWT (passport-jwt)
+- **IA**: OpenAI (2 modelos fine-tuned: preguntas + comunicación escrita)
+- **Validación**: class-validator + class-transformer
+- **Docs**: Swagger en `/docs`
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+## Requisitos
 
-## Project setup
+- Node.js 18+
+- PostgreSQL (o Supabase)
+- Cuenta de OpenAI con API key
+- Proyecto de Supabase configurado
+
+## Instalación
 
 ```bash
-$ npm install
+npm install
 ```
 
-## Compile and run the project
+## Configuración
+
+Copiar `.env.example` a `.env` y completar las variables:
+
+| Variable | Descripción |
+|---|---|
+| `DATABASE_URL` | Connection string de PostgreSQL |
+| `PORT` | Puerto del servidor (default: 3000) |
+| `SUPABASE_URL` | URL del proyecto Supabase |
+| `SUPABASE_ANON_KEY` | Clave anónima de Supabase |
+| `SUPABASE_JWT_SECRET` | Secreto JWT para validar tokens |
+| `OPENAI_API_KEY` | API key de OpenAI |
+| `OPENAI_MODEL_ID` | Modelo fine-tuned para generación de preguntas |
+| `MODELO_ID_COMP_ESCRITA` | Modelo fine-tuned para situaciones de escritura |
+
+## Ejecución
 
 ```bash
-# development
-$ npm run start
+# Desarrollo con hot-reload
+npm run start:dev
 
-# watch mode
-$ npm run start:dev
-
-# production mode
-$ npm run start:prod
+# Producción
+npm run start:prod
 ```
 
-## Run tests
+## Base de datos
 
 ```bash
-# unit tests
-$ npm run test
+# Sincronizar schema (desarrollo)
+npx prisma db push
 
-# e2e tests
-$ npm run test:e2e
-
-# test coverage
-$ npm run test:cov
+# Generar cliente Prisma
+npx prisma generate
 ```
 
-## Deployment
+## Modelo de datos
 
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
+```
+User
+ ├── id           String   @id (UUID de Supabase Auth)
+ ├── email        String   @unique
+ ├── nombre       String
+ ├── apellido    String
+ ├── carrera      String
+ ├── semestre     Int
+ ├── QuizAttempt[]
+ └── RehearsalSession[]
 
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+QuizAttempt
+ ├── id             Int          @id @default(autoincrement())
+ ├── userId         String
+ ├── subjectId      String
+ ├── totalQuestions Int
+ ├── correctAnswers Int
+ ├── finishedAt    DateTime
+ ├── user           User         @relation
+ └── answers        QuizAnswer[]
 
-```bash
-$ npm install -g @nestjs/mau
-$ mau deploy
+QuizAnswer
+ ├── id               Int          @id @default(autoincrement())
+ ├── attemptId        Int
+ ├── questionOrder    Int
+ ├── statement        String
+ ├── options          Json
+ ├── selectedOptionId String
+ ├── correctOptionId  String
+ ├── isCorrect        Boolean
+ ├── explanation      String
+ ├── attempt          QuizAttempt  @relation
+ └── @@unique(attemptId, questionOrder)
+
+RehearsalSession
+ ├── id             Int               @id @default(autoincrement())
+ ├── userId         String
+ ├── subjectId      String
+ ├── totalQuestions Int
+ ├── correctAnswers Int
+ ├── finishedAt     DateTime
+ ├── user           User              @relation
+ └── answers        RehearsalAnswer[]
+
+RehearsalAnswer
+ ├── id               Int              @id @default(autoincrement())
+ ├── sessionId        Int
+ ├── sourceAnswerId   Int              (ref lógica a QuizAnswer, sin FK)
+ ├── statement        String
+ ├── options          Json
+ ├── selectedOptionId String
+ ├── correctOptionId  String
+ ├── isCorrect        Boolean
+ ├── explanation      String
+ ├── session          RehearsalSession  @relation
+ └── @@unique(sessionId, sourceAnswerId)
 ```
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+## Endpoints
 
-## Resources
+Todos los endpoints autenticados requieren header `Authorization: Bearer <token>`.
 
-Check out a few resources that may come in handy when working with NestJS:
+### Auth (`/auth`)
 
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
+| Método | Ruta | Auth | Descripción |
+|---|---|---|---|
+| POST | `/auth/signup` | No | Registro de usuario |
+| POST | `/auth/login` | No | Login, retorna JWT |
+| GET | `/auth/profile` | JWT | Verificar token activo |
 
-## Support
+### Usuarios (`/users`)
 
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
+| Método | Ruta | Auth | Descripción |
+|---|---|---|---|
+| GET | `/users/me` | JWT | Perfil del usuario autenticado |
+| GET | `/users/:id` | JWT | Perfil por ID |
+| GET | `/users/career/:carrera` | JWT | Usuarios por carrera |
+| POST | `/users/sync` | JWT | Crear o actualizar usuario |
 
-## Stay in touch
+### Preguntas (`/questions`)
 
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
+| Método | Ruta | Auth | Descripción |
+|---|---|---|---|
+| POST | `/questions/generate` | JWT | Generar pregunta con IA. Body: `{ competencia, dificultad? }` |
 
-## License
+**Dificultad** (campo opcional):
+- `basic` (default) — Preguntas de un paso lógico
+- `intermediate` — Razonamiento de dos pasos
+- `advanced` — Análisis compuesto
 
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+Las 5 competencias: `razonamiento-cuantitativo`, `competencias-ciudadanas`, `ingles`. Para `razonamiento-cuantitativo` se usan templates deterministas; las demás generan con IA.
+
+### Situaciones (`/situaciones`)
+
+| Método | Ruta | Auth | Descripción |
+|---|---|---|---|
+| POST | `/situaciones/generate` | JWT | Generar situación de escritura |
+| POST | `/situaciones/corregir` | JWT | Corregir texto redactado |
+
+### Progreso (`/progress`)
+
+| Método | Ruta | Auth | Descripción |
+|---|---|---|---|
+| GET | `/progress/me` | JWT | Dashboard de progreso del usuario |
+| POST | `/progress/attempts` | JWT | Guardar intento de quiz |
+
+**Dashboard** retorna:
+- `userProgress`: progreso por materia (preguntas completadas, correctas)
+- `stats`: nivel, XP, racha, meta diaria, `overallCompletionPct`
+
+### Repaso (`/rehearsal`)
+
+| Método | Ruta | Auth | Descripción |
+|---|---|---|---|
+| GET | `/rehearsal/wrong-answers/:subjectId` | JWT | Preguntas incorrectas no repasadas |
+| POST | `/rehearsal/sessions` | JWT | Guardar sesión de repaso |
+
+Las sesiones de repaso **no** afectan XP, racha ni progreso.
+
+### Chat (`/chat`)
+
+| Método | Ruta | Auth | Descripción |
+|---|---|---|---|
+| POST | `/chat` | JWT | Enviar mensaje al tutor IA |
+
+### Leaderboard (`/leaderboard`)
+
+| Método | Ruta | Auth | Descripción |
+|---|---|---|---|
+| GET | `/leaderboard` | JWT | Top 10 usuarios por XP |
+
+## Sistema de niveles
+
+La plataforma calcula XP y niveles automáticamente:
+
+- **XP**: 10 por respuesta correcta
+- **Nivel**: `floor(XP / 100) + 1`
+- **Racha**: días consecutivos con al menos un intento
+- **Meta diaria**: 10 sesiones quiz
+
+## Dificultad de preguntas
+
+El sistema de dificultad se alinea con los niveles del mapa de aprendizaje:
+
+| Completitud | Tier | Niveles | Tipo de preguntas |
+|---|---|---|---|
+| 0–39% | `basic` | Explorador, Aprendiz | Un paso lógico (templates actuales) |
+| 40–79% | `intermediate` | Practicante, Avanzado | Dos pasos (descuento+IVA, proporción+conversión, promedio invertido) |
+| 80–100% | `advanced` | Experto, Maestro | Razonamiento compuesto (punto de equilibrio, razón combinada, regla de tres) |
+
+**Templates**: Razonamiento cuantitativo usa routing acumulativo (basic=10, intermediate=13, advanced=16 templates). Las demás materias inyectan instrucciones de dificultad en el prompt del modelo.
+
+## Estructura del proyecto
+
+```
+src/
+├── auth/           # Registro, login, JWT
+├── chat/           # Tutor IA
+├── leaderboard/     # Ranking por XP
+├── progress/       # Progreso, XP, niveles, dashboard
+├── questions/      # Generación de preguntas (IA + templates)
+├── rehearsal/       # Repaso de preguntas incorrectas
+├── users/          # Perfil de usuario
+├── prisma.service.ts  # Singleton de PrismaClient
+└── main.ts         # Bootstrap + Swagger
+```
+
+## Swagger
+
+La documentación interactiva está disponible en `http://localhost:3000/docs` cuando el servidor está corriendo.

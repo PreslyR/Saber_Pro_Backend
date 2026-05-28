@@ -8,6 +8,7 @@ import { QuestionsModule } from './questions/questions.module';
 import { ProgressModule } from './progress/progress.module';
 import { ChatModule } from './chat/chat.module';
 import { LeaderboardModule } from './leaderboard/leaderboard.module';
+import { RehearsalModule } from './rehearsal/rehearsal.module';
 @Module({
   imports: [ConfigModule.forRoot({
       isGlobal: true,
@@ -18,7 +19,8 @@ import { LeaderboardModule } from './leaderboard/leaderboard.module';
     QuestionsModule,
     ProgressModule,
     ChatModule,
-    LeaderboardModule],
+    LeaderboardModule,
+    RehearsalModule],
   controllers: [],
   providers: [JwtStrategy],
 })

@@ -15,7 +15,8 @@ model User {
   semestre     Int
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
-  quizAttempts QuizAttempt[]
+  quizAttempts      QuizAttempt[]
+  rehearsalSessions RehearsalSession[]
 }
 
 model QuizAttempt {
@@ -49,4 +50,36 @@ model QuizAnswer {
 
   @@index([attemptId])
   @@unique([attemptId, questionOrder])
+}
+
+model RehearsalSession {
+  id             Int              @id @default(autoincrement())
+  userId         String
+  subjectId      String
+  totalQuestions Int
+  correctAnswers Int
+  finishedAt     DateTime         @default(now())
+  createdAt      DateTime         @default(now())
+  user           User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  answers        RehearsalAnswer[]
+
+  @@index([userId])
+  @@index([userId, subjectId])
+}
+
+model RehearsalAnswer {
+  id               Int              @id @default(autoincrement())
+  sessionId        Int
+  sourceAnswerId   Int
+  statement        String
+  options          Json
+  selectedOptionId String
+  correctOptionId  String
+  isCorrect        Boolean
+  explanation      String
+  createdAt        DateTime         @default(now())
+  session          RehearsalSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId])
+  @@unique([sessionId, sourceAnswerId])
 }
