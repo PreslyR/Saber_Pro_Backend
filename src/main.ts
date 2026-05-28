@@ -13,7 +13,13 @@ async function bootstrap() {
     .build();
     
   const document = SwaggerModule.createDocument(app, config);
-  SwaggerModule.setup('docs', app, document); 
+  SwaggerModule.setup('docs', app, document);
+
+  app.enableCors({
+    origin: process.env.CORS_ORIGINS?.split(',').map(o => o.trim()) ?? true,
+    credentials: true,
+  });
+
   app.useGlobalPipes(new ValidationPipe({
     whitelist: true,    
     forbidNonWhitelisted: true,
